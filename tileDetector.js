@@ -264,18 +264,39 @@ class TileDetector {
     }
     
     /**
-     * Loads saved models from browser storage
+     * Loads saved models from browser storage or pre-trained models
      */
     async loadSavedModels() {
+        // Try loading from IndexedDB first (user's trained models)
         try {
             this.colorModel = await tf.loadLayersModel('indexeddb://qwirkle-color-model');
             this.shapeModel = await tf.loadLayersModel('indexeddb://qwirkle-shape-model');
             this.isModelReady = true;
-            console.log('Models loaded successfully');
+            console.log('✅ Models loaded from IndexedDB (user-trained)');
+            return;
         } catch (error) {
-            console.log('No saved models found, training required');
-            this.isModelReady = false;
+            console.log('No user-trained models in IndexedDB, trying pre-trained models...');
         }
+        
+        // Try loading pre-trained models from repository
+        try {
+            this.colorModel = await tf.loadLayersModel('./models/pretrained/color-model/model.json');
+            this.shapeModel = await tf.loadLayersModel('./models/pretrained/shape-model/model.json');
+            this.isModelReady = true;
+            console.log('✅ Pre-trained models loaded from repository');
+            
+            // Optionally save to IndexedDB for faster loading next time
+            await this.colorModel.save('indexeddb://qwirkle-color-model');
+            await this.shapeModel.save('indexeddb://qwirkle-shape-model');
+            console.log('✅ Pre-trained models cached to IndexedDB');
+            return;
+        } catch (error) {
+            console.log('No pre-trained models found in repository');
+        }
+        
+        // No models available
+        console.log('⚠️ No models available - training required');
+        this.isModelReady = false;
     }
 }
 
