@@ -1,0 +1,575 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    color: #333;
+    overflow-x: hidden;
+}
+
+.screen {
+    display: none;
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.screen.active {
+    display: block;
+}
+
+.container {
+    max-width: 600px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 20px;
+    padding: 30px 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+h1 {
+    color: #667eea;
+    text-align: center;
+    margin-bottom: 30px;
+    font-size: 2em;
+}
+
+h2 {
+    color: #667eea;
+    margin-bottom: 15px;
+    font-size: 1.5em;
+}
+
+h3 {
+    color: #764ba2;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+/* Rules Screen */
+.rules-content {
+    text-align: left;
+    margin-bottom: 30px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.rule-section {
+    margin-bottom: 25px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+}
+
+.rule-section ul, .rule-section ol {
+    margin-left: 20px;
+    margin-top: 10px;
+}
+
+.rule-section li {
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+/* Buttons */
+.btn {
+    padding: 15px 30px;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    width: 100%;
+    margin-top: 10px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+.btn-secondary {
+    background: #f59e0b;
+    color: white;
+}
+
+.btn-outline {
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+}
+
+.btn-small {
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.button-group .btn {
+    flex: 1;
+}
+
+/* Setup Screen */
+.setup-content {
+    margin-bottom: 20px;
+}
+
+#player-inputs {
+    margin: 20px 0;
+}
+
+.player-input-group {
+    margin-bottom: 15px;
+}
+
+.player-name-input {
+    width: 100%;
+    padding: 15px;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 16px;
+    transition: border-color 0.3s;
+}
+
+.player-name-input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Game Screen */
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.camera-section {
+    margin: 20px 0;
+    position: relative;
+}
+
+#camera-preview {
+    width: 100%;
+    border-radius: 10px;
+    background: #000;
+    max-height: 50vh;
+    object-fit: contain;
+}
+
+.captured-photo {
+    width: 100%;
+    min-height: 200px;
+    border-radius: 10px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 15px;
+}
+
+.captured-photo img {
+    width: 100%;
+    border-radius: 10px;
+}
+
+.captured-photo.empty::before {
+    content: 'Camera will appear here';
+    color: #9ca3af;
+}
+
+.turn-info {
+    text-align: center;
+    margin: 15px 0;
+    padding: 15px;
+    background: #f0f9ff;
+    border-radius: 10px;
+    color: #0369a1;
+}
+
+/* Scoreboard */
+.scoreboard {
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    max-width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.scoreboard.active {
+    display: block;
+}
+
+.score-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 15px;
+    margin: 10px 0;
+    background: #f8f9fa;
+    border-radius: 10px;
+    font-size: 18px;
+}
+
+.score-item.current-player {
+    background: #dbeafe;
+    border: 2px solid #3b82f6;
+}
+
+.score-item .player-name {
+    font-weight: 600;
+    color: #333;
+}
+
+.score-item .player-score {
+    font-weight: 700;
+    color: #667eea;
+}
+
+/* Manual Score Section */
+.manual-score-section {
+    background: #fef3c7;
+    padding: 20px;
+    border-radius: 10px;
+    margin: 20px 0;
+    text-align: center;
+}
+
+.manual-score-section h3 {
+    margin-bottom: 15px;
+}
+
+#detected-score {
+    color: #d97706;
+    font-size: 1.3em;
+}
+
+.score-adjustment {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    margin: 15px 0;
+}
+
+#manual-score-input {
+    width: 80px;
+    padding: 10px;
+    font-size: 18px;
+    text-align: center;
+    border: 2px solid #d97706;
+    border-radius: 8px;
+}
+
+/* Results Screen */
+.final-scores {
+    margin: 30px 0;
+}
+
+.final-score-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px;
+    margin: 15px 0;
+    background: #f8f9fa;
+    border-radius: 10px;
+    font-size: 20px;
+}
+
+.final-score-item.winner {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 3px solid #f59e0b;
+    transform: scale(1.05);
+}
+
+.final-score-item .rank {
+    font-weight: 700;
+    color: #764ba2;
+    margin-right: 10px;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .container {
+        padding: 20px 15px;
+    }
+    
+    h1 {
+        font-size: 1.5em;
+    }
+    
+    .btn {
+        padding: 12px 20px;
+        font-size: 14px;
+    }
+}
+
+/* Training Screen */
+.training-content {
+    margin-bottom: 20px;
+}
+
+.training-info {
+    background: #e0e7ff;
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    color: #3730a3;
+    line-height: 1.6;
+}
+
+.training-section {
+    margin: 25px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+}
+
+.tile-selector {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.tile-select {
+    flex: 1;
+    padding: 12px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 16px;
+    background: white;
+}
+
+.tile-select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.file-input {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 2px dashed #667eea;
+    border-radius: 8px;
+    background: white;
+}
+
+.tile-preview {
+    min-height: 150px;
+    margin: 15px 0;
+    border-radius: 10px;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.tile-preview img {
+    max-width: 100%;
+    max-height: 300px;
+    object-fit: contain;
+}
+
+.tile-preview.empty::before {
+    content: 'Preview will appear here';
+    color: #9ca3af;
+}
+
+.training-stats {
+    background: #dbeafe;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.training-stats p {
+    margin: 5px 0;
+    font-weight: 600;
+    color: #1e40af;
+}
+
+.training-images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 10px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.training-image-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid #e5e7eb;
+    cursor: pointer;
+}
+
+.training-image-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.training-image-item .label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    font-size: 10px;
+    padding: 3px;
+    text-align: center;
+}
+
+.training-image-item .delete-btn {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    font-size: 12px;
+    display: none;
+}
+
+.training-image-item:hover .delete-btn {
+    display: block;
+}
+
+.batch-progress {
+    background: #dbeafe;
+    padding: 15px;
+    border-radius: 8px;
+    margin-top: 15px;
+}
+
+.batch-progress p {
+    margin-bottom: 10px;
+    font-weight: 600;
+    color: #1e40af;
+}
+
+.batch-progress .progress-bar {
+    width: 100%;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.batch-progress .progress-fill {
+    height: 100%;
+    background: #3b82f6;
+    transition: width 0.3s;
+    border-radius: 10px;
+}
+
+.grid-preview {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f0f9ff;
+    border-radius: 10px;
+}
+
+.grid-preview h4 {
+    color: #0369a1;
+    margin: 15px 0 10px 0;
+}
+
+.grid-tiles-detected {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 15px;
+    margin: 20px 0;
+}
+
+.grid-tile-item {
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: center;
+}
+
+.grid-tile-item img {
+    width: 100%;
+    height: 100px;
+    object-fit: contain;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    background: #f3f4f6;
+}
+
+.grid-tile-item select {
+    width: 100%;
+    padding: 8px;
+    border: 2px solid #e5e7eb;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+.grid-tile-item.labeled {
+    border-color: #10b981;
+    background: #d1fae5;
+}
+
+/* Loading overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 2000;
+    color: white;
+    font-size: 20px;
+}
+
+.loading-overlay .progress-bar {
+    width: 80%;
+    max-width: 300px;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    margin-top: 20px;
+    overflow: hidden;
+}
+
+.loading-overlay .progress-fill {
+    height: 100%;
+    background: #667eea;
+    transition: width 0.3s;
+}

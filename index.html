@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Qwirkle Score Counter</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+</head>
+<body>
+    <!-- Rules Screen -->
+    <div id="rules-screen" class="screen active">
+        <div class="container">
+            <h1>Qwirkle Score Counter</h1>
+            <div class="rules-content">
+                <h2>How to Play Qwirkle</h2>
+                <div class="rule-section">
+                    <h3>Objective</h3>
+                    <p>Score points by creating lines of tiles that share a common attribute (color or shape).</p>
+                </div>
+                
+                <div class="rule-section">
+                    <h3>Scoring Rules</h3>
+                    <ul>
+                        <li><strong>Each tile</strong> in a line scores 1 point</li>
+                        <li><strong>Qwirkle!</strong> Complete a line of 6 tiles = 6 bonus points (12 total)</li>
+                        <li><strong>Multiple lines:</strong> If tiles create multiple lines, score each line</li>
+                        <li><strong>Single tile:</strong> If placed tile only extends one line, count all tiles in that line</li>
+                    </ul>
+                </div>
+
+                <div class="rule-section">
+                    <h3>Valid Lines</h3>
+                    <ul>
+                        <li>All tiles must share the same color OR the same shape</li>
+                        <li>No duplicates: each tile in a line must be unique</li>
+                        <li>Maximum 6 tiles per line (one of each shape or color)</li>
+                    </ul>
+                </div>
+
+                <div class="rule-section">
+                    <h3>Using This App</h3>
+                    <ol>
+                        <li>Enter player names to start a new game</li>
+                        <li>Take a photo of the board before the first move</li>
+                        <li>After each turn, take a new photo</li>
+                        <li>The app will detect new tiles and calculate points</li>
+                        <li>Use "Swap Tiles" if a player swaps instead of playing</li>
+                    </ol>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="showScreen('setup-screen')">Start New Game</button>
+            <button class="btn btn-outline" onclick="showScreen('training-screen')">Train Tile Detection</button>
+        </div>
+    </div>
+
+    <!-- Training Screen -->
+    <div id="training-screen" class="screen">
+        <div class="container">
+            <h1>Train Tile Detection</h1>
+            <div class="training-content">
+                <p class="training-info">Upload photos of individual Qwirkle tiles to improve detection accuracy. Take clear photos of each tile type.</p>
+                
+                <div class="training-section">
+                    <h3>Select Tile Type</h3>
+                    <div class="tile-selector">
+                        <select id="tile-color-select" class="tile-select">
+                            <option value="">Select Color</option>
+                            <option value="silver">Silver</option>
+                            <option value="purple">Purple</option>
+                            <option value="orange">Orange</option>
+                            <option value="blue">Blue</option>
+                            <option value="pink">Pink</option>
+                            <option value="purple-blue">Purple-Blue</option>
+                        </select>
+                        <select id="tile-shape-select" class="tile-select">
+                            <option value="">Select Shape</option>
+                            <option value="circle">Circle</option>
+                            <option value="square">Square</option>
+                            <option value="diamond">Diamond</option>
+                            <option value="star">Star</option>
+                            <option value="clover">Clover</option>
+                            <option value="cross">Cross</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="training-section">
+                    <h3>Upload Tile Photo(s)</h3>
+                    <input type="file" id="tile-photo-input" accept="image/*" capture="environment" class="file-input">
+                    <div id="tile-preview" class="tile-preview"></div>
+                    <button class="btn btn-primary" onclick="addTrainingImage()" id="add-training-btn" disabled>Add to Training Set</button>
+                </div>
+
+                <div class="training-section">
+                    <h3>Batch Upload</h3>
+                    <p class="training-info">Upload multiple images at once. Name files as: color-shape-01.jpg (e.g., red-circle-01.jpg)</p>
+                    <input type="file" id="batch-upload-input" accept="image/*" multiple class="file-input">
+                    <button class="btn btn-primary" onclick="batchUploadImages()" id="batch-upload-btn">Upload Batch</button>
+                    <div id="batch-progress" class="batch-progress" style="display: none;">
+                        <p>Processing: <span id="batch-current">0</span> / <span id="batch-total">0</span></p>
+                        <div class="progress-bar"><div class="progress-fill" id="batch-progress-fill"></div></div>
+                    </div>
+                </div>
+
+                <div class="training-section">
+                    <h3>Grid Image Splitter</h3>
+                    <p class="training-info">Upload a photo with 6 tiles (same color, different shapes arranged in rows). The app will auto-detect and split them.</p>
+                    <input type="file" id="grid-upload-input" accept="image/*" class="file-input">
+                    <button class="btn btn-primary" onclick="processGridImage()" id="grid-process-btn">Process Grid Image</button>
+                    
+                    <div id="grid-preview" class="grid-preview" style="display: none;">
+                        <h4>Select tile color for this image:</h4>
+                        <select id="grid-color-select" class="tile-select">
+                            <option value="">Select Color</option>
+                            <option value="silver">Silver</option>
+                            <option value="purple">Purple</option>
+                            <option value="orange">Orange</option>
+                            <option value="blue">Blue</option>
+                            <option value="pink">Pink</option>
+                            <option value="purple-blue">Purple-Blue</option>
+                        </select>
+                        
+                        <h4>Label each detected tile:</h4>
+                        <div id="grid-tiles-detected" class="grid-tiles-detected"></div>
+                        
+                        <button class="btn btn-primary" onclick="saveGridTiles()" id="save-grid-btn">Save All Tiles</button>
+                        <button class="btn btn-outline" onclick="cancelGrid()">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="training-section">
+                    <h3>Training Data</h3>
+                    <div id="training-stats" class="training-stats">
+                        <p>Total images: <span id="total-training-images">0</span></p>
+                    </div>
+                    <div id="training-images-grid" class="training-images-grid"></div>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-outline" onclick="showScreen('rules-screen')">Back</button>
+                    <button class="btn btn-secondary" onclick="importTrainingData()">Import Data</button>
+                    <button class="btn btn-secondary" onclick="exportTrainingData()">Export Data</button>
+                    <button class="btn btn-primary" onclick="trainModel()" id="train-model-btn">Train Model</button>
+                </div>
+                
+                <div class="button-group" style="margin-top: 10px;">
+                    <button class="btn btn-outline" onclick="exportModel()">Export Model</button>
+                    <button class="btn btn-outline" onclick="importModel()">Import Model</button>
+                    <button class="btn btn-secondary" onclick="clearAllTrainingData()">Clear All Data</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player Setup Screen -->
+    <div id="setup-screen" class="screen">
+        <div class="container">
+            <h1>Setup Game</h1>
+            <div class="setup-content">
+                <h3>Enter Player Names</h3>
+                <div id="player-inputs">
+                    <div class="player-input-group">
+                        <input type="text" class="player-name-input" placeholder="Player 1" data-player="0">
+                    </div>
+                    <div class="player-input-group">
+                        <input type="text" class="player-name-input" placeholder="Player 2" data-player="1">
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="addPlayerInput()">+ Add Player</button>
+                <div class="button-group">
+                    <button class="btn btn-outline" onclick="showScreen('rules-screen')">Back</button>
+                    <button class="btn btn-primary" onclick="startGame()">Start Game</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="container">
+            <div class="game-header">
+                <h2 id="current-player-name">Player's Turn</h2>
+                <button class="btn btn-small btn-outline" onclick="showScoreboard()">Scores</button>
+            </div>
+
+            <div class="scoreboard" id="scoreboard">
+                <h3>Scores</h3>
+                <div id="score-list"></div>
+                <button class="btn btn-small" onclick="hideScoreboard()">Close</button>
+            </div>
+
+            <div class="camera-section">
+                <video id="camera-preview" autoplay playsinline></video>
+                <canvas id="photo-canvas" style="display: none;"></canvas>
+                <div id="captured-photo" class="captured-photo"></div>
+            </div>
+
+            <div class="turn-info">
+                <p id="turn-instruction">Take a photo of the board after placing tiles</p>
+            </div>
+
+            <div class="manual-score-section" id="manual-score-section" style="display: none;">
+                <h3>Detected Score: <span id="detected-score">0</span> points</h3>
+                <p>Adjust if needed:</p>
+                <div class="score-adjustment">
+                    <button class="btn btn-small" onclick="adjustScore(-1)">-1</button>
+                    <input type="number" id="manual-score-input" value="0" min="0">
+                    <button class="btn btn-small" onclick="adjustScore(1)">+1</button>
+                </div>
+                <button class="btn btn-primary" onclick="confirmScore()">Confirm Score</button>
+            </div>
+
+            <div class="button-group" id="action-buttons">
+                <button class="btn btn-secondary" onclick="swapTiles()">Swap Tiles (0 pts)</button>
+                <button class="btn btn-primary" onclick="capturePhoto()">Take Photo</button>
+            </div>
+
+            <button class="btn btn-outline btn-small" onclick="endGame()">End Game</button>
+        </div>
+    </div>
+
+    <!-- Results Screen -->
+    <div id="results-screen" class="screen">
+        <div class="container">
+            <h1>Game Over!</h1>
+            <div class="final-scores" id="final-scores"></div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="location.reload()">New Game</button>
+                <button class="btn btn-outline" onclick="showScreen('game-screen')">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="scoring.js"></script>
+    <script src="trainingData.js"></script>
+    <script src="gridSplitter.js"></script>
+    <script src="tileDetector.js"></script>
+    <script src="imageProcessing.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
