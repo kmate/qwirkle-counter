@@ -27,6 +27,8 @@ Perfect! The Grid Splitter feature is designed exactly for this.
 ### 1. Open the App
 ```bash
 # Start the server
+npm start
+# or
 python serve.py
 
 # Open in mobile browser

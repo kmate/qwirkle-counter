@@ -1,0 +1,23 @@
+{
+  "name": "qwirkle-counter",
+  "version": "1.0.0",
+  "description": "Mobile web app for tracking Qwirkle scores with ML tile detection",
+  "scripts": {
+    "start": "npx http-server -p 8000 -c-1",
+    "dev": "npx http-server -p 8000 -c-1 -o",
+    "serve": "npx http-server -p 8000 -c-1",
+    "add-models": "node add_models.js"
+  },
+  "keywords": [
+    "qwirkle",
+    "board-game",
+    "score-tracker",
+    "tensorflow",
+    "machine-learning",
+    "pwa"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
