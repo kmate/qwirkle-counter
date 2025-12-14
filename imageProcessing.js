@@ -8,150 +8,437 @@
  * @returns {Promise<Object>} Detection results with tile positions and colors
  */
 async function detectAndScoreTiles(previousImageData, currentImageData) {
-    // Create images from data URLs
-    const prevImage = await loadImage(previousImageData);
-    const currImage = await loadImage(currentImageData);
+    console.log('Starting tile detection and scoring...');
     
-    // Create canvases for processing
-    const canvas1 = document.createElement('canvas');
-    const canvas2 = document.createElement('canvas');
-    const diffCanvas = document.createElement('canvas');
+    // Step 1: Detect all tiles in current image
+    const currentTiles = await detectAllTilesInImage(currentImageData);
     
-    canvas1.width = canvas2.width = diffCanvas.width = prevImage.width;
-    canvas1.height = canvas2.height = diffCanvas.height = prevImage.height;
-    
-    const ctx1 = canvas1.getContext('2d');
-    const ctx2 = canvas2.getContext('2d');
-    const diffCtx = diffCanvas.getContext('2d');
-    
-    // Draw images
-    ctx1.drawImage(prevImage, 0, 0);
-    ctx2.drawImage(currImage, 0, 0);
-    
-    // Get image data
-    const prevData = ctx1.getImageData(0, 0, canvas1.width, canvas1.height);
-    const currData = ctx2.getImageData(0, 0, canvas2.width, canvas2.height);
-    const diffData = diffCtx.createImageData(diffCanvas.width, diffCanvas.height);
-    
-    // Calculate difference
-    let changedPixels = 0;
-    const threshold = 30; // Color difference threshold
-    
-    for (let i = 0; i < prevData.data.length; i += 4) {
-        const rDiff = Math.abs(prevData.data[i] - currData.data[i]);
-        const gDiff = Math.abs(prevData.data[i + 1] - currData.data[i + 1]);
-        const bDiff = Math.abs(prevData.data[i + 2] - currData.data[i + 2]);
-        
-        const totalDiff = rDiff + gDiff + bDiff;
-        
-        if (totalDiff > threshold) {
-            changedPixels++;
-            // Mark difference in white
-            diffData.data[i] = 255;
-            diffData.data[i + 1] = 255;
-            diffData.data[i + 2] = 255;
-            diffData.data[i + 3] = 255;
-        } else {
-            diffData.data[i] = 0;
-            diffData.data[i + 1] = 0;
-            diffData.data[i + 2] = 0;
-            diffData.data[i + 3] = 255;
-        }
+    // Step 2: Detect all tiles in previous image (if exists)
+    let previousTiles = [];
+    if (previousImageData) {
+        previousTiles = await detectAllTilesInImage(previousImageData);
     }
     
-    diffCtx.putImageData(diffData, 0, 0);
+    // Step 3: Compare tile sets to find new tiles
+    const newTiles = findNewTiles(previousTiles, currentTiles);
     
-    // Analyze changed regions to detect tiles
-    const tiles = await detectTilesInDifference(diffCanvas, currImage, ctx2);
+    console.log(`Found ${currentTiles.length} tiles in current image, ${previousTiles.length} in previous, ${newTiles.length} new tiles`);
     
-    // If ML model is available, classify detected tiles
-    if (tileDetector.isModelReady && tiles.length > 0) {
-        for (const tile of tiles) {
-            try {
-                // Extract tile region as image
-                const tileImage = extractTileImage(ctx2.canvas, tile);
-                const classification = await tileDetector.classifyTile(tileImage);
-                tile.color = classification.color;
-                tile.shape = classification.shape;
-                tile.colorConfidence = classification.colorConfidence;
-                tile.shapeConfidence = classification.shapeConfidence;
-            } catch (error) {
-                console.error('Error classifying tile:', error);
-            }
-        }
-    }
-    
-    // Calculate score based on detected tiles
-    const score = calculateScoreFromTiles(tiles);
+    // Step 4: Calculate score based on new tiles
+    const score = calculateQwirkleScore(newTiles, currentTiles);
     
     return score;
 }
 
 /**
- * Loads an image from a data URL
+ * Detects all tiles in an image and their positions using relative positioning
+ * Designed for handheld phone photography with significant variation
+ * @param {string} imageData - Base64 data URL of the image
+ * @returns {Promise<Array>} Array of detected tiles with relative positioning
  */
-function loadImage(dataUrl) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = dataUrl;
-    });
+async function detectAllTilesInImage(imageData) {
+    console.log('Detecting tiles in image (handheld mode)...');
+    
+    // Load the image
+    const img = await loadImage(imageData);
+    
+    // Create canvas for processing
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    
+    // Step 1: Extract individual tiles with more lenient detection
+    const extractedTiles = await detectAndExtractTilesRobust(imageData);
+    
+    // Step 2: Classify each tile using the ML model
+    const classifiedTiles = [];
+    
+    if (tileDetector.isModelReady && extractedTiles.length > 0) {
+        for (let i = 0; i < extractedTiles.length; i++) {
+            const tile = extractedTiles[i];
+            try {
+                const classification = await tileDetector.classifyTile(tile.imageData);
+                
+                // Create relative position descriptor instead of grid coordinates
+                const positionDescriptor = createRelativePositionDescriptor(
+                    tile.position, 
+                    extractedTiles, 
+                    img.width, 
+                    img.height
+                );
+                
+                classifiedTiles.push({
+                    id: `tile_${i}`,
+                    color: classification.color,
+                    shape: classification.shape,
+                    colorConfidence: classification.colorConfidence,
+                    shapeConfidence: classification.shapeConfidence,
+                    pixelPosition: tile.position,
+                    positionDescriptor: positionDescriptor,
+                    bounds: tile.bounds,
+                    imageData: tile.imageData,
+                    size: (tile.bounds.maxX - tile.bounds.minX) * (tile.bounds.maxY - tile.bounds.minY)
+                });
+                
+            } catch (error) {
+                console.error('Error classifying tile:', error);
+                // Add unclassified tile for position tracking
+                const positionDescriptor = createRelativePositionDescriptor(
+                    tile.position, 
+                    extractedTiles, 
+                    img.width, 
+                    img.height
+                );
+                classifiedTiles.push({
+                    id: `tile_${i}`,
+                    color: 'unknown',
+                    shape: 'unknown',
+                    colorConfidence: 0,
+                    shapeConfidence: 0,
+                    pixelPosition: tile.position,
+                    positionDescriptor: positionDescriptor,
+                    bounds: tile.bounds,
+                    imageData: tile.imageData,
+                    size: (tile.bounds.maxX - tile.bounds.minX) * (tile.bounds.maxY - tile.bounds.minY)
+                });
+            }
+        }
+    }
+    
+    console.log(`Detected and classified ${classifiedTiles.length} tiles`);
+    return classifiedTiles;
 }
 
 /**
- * Extracts a tile region as a base64 image
+ * Robust tile detection that handles significant camera variations
+ * Much more lenient than the previous grid-based approach
  */
-function extractTileImage(canvas, tile) {
-    const padding = 10;
-    const minX = Math.max(0, tile.bounds.minX - padding);
-    const minY = Math.max(0, tile.bounds.minY - padding);
-    const width = Math.min(canvas.width - minX, tile.bounds.maxX - minX + padding * 2);
-    const height = Math.min(canvas.height - minY, tile.bounds.maxY - minY + padding * 2);
+async function detectAndExtractTilesRobust(imageDataUrl) {
+    const img = await loadImage(imageDataUrl);
     
-    const tileCanvas = document.createElement('canvas');
-    tileCanvas.width = width;
-    tileCanvas.height = height;
-    const ctx = tileCanvas.getContext('2d');
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
     
-    ctx.drawImage(canvas, minX, minY, width, height, 0, 0, width, height);
+    // Use multiple detection strategies and combine results
+    let extractedTiles = [];
     
-    return tileCanvas.toDataURL('image/jpeg', 0.9);
+    // Strategy 1: Color-based segmentation (works well for different colored tiles)
+    const colorSegmentedTiles = await detectTilesByColorSegmentation(canvas, img);
+    extractedTiles = extractedTiles.concat(colorSegmentedTiles);
+    
+    // Strategy 2: Edge-based detection (backup for similar colored tiles)
+    const edgeDetectedTiles = await detectTilesByEdges(canvas, img);
+    
+    // Merge and deduplicate tiles
+    const mergedTiles = mergeDuplicateTiles([...extractedTiles, ...edgeDetectedTiles]);
+    
+    console.log(`Robust detection found ${mergedTiles.length} tiles using combined strategies`);
+    return mergedTiles;
 }
 
 /**
- * Detects individual tiles in the difference image
+ * Detects tiles by segmenting different color regions
+ * More reliable for Qwirkle tiles with distinct colors
  */
-async function detectTilesInDifference(diffCanvas, currentImage, currentCanvas) {
-    const ctx = diffCanvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, diffCanvas.width, diffCanvas.height);
+async function detectTilesByColorSegmentation(canvas, img) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Find connected regions (potential tiles)
-    const regions = findConnectedRegions(imageData);
+    // Create a color-quantized version for better segmentation
+    const quantizedData = quantizeColors(imageData, 16); // Reduce to 16 main colors
     
-    // Filter regions by size (tiles should be within certain size range)
-    const tiles = regions.filter(region => {
+    // Find connected regions of similar colors
+    const colorRegions = findColorRegions(quantizedData);
+    
+    // Filter regions that look like tiles
+    const validTiles = colorRegions.filter(region => {
+        const width = region.bounds.maxX - region.bounds.minX;
+        const height = region.bounds.maxY - region.bounds.minY;
         const size = region.pixels.length;
-        // Assuming tiles are at least 100 pixels and at most 10000 pixels
-        return size > 100 && size < 50000;
+        const aspectRatio = width / height;
+        
+        // Much more lenient filtering for handheld photos
+        const minSize = Math.min(canvas.width, canvas.height) * 0.01; // At least 1% of image
+        const maxSize = Math.min(canvas.width, canvas.height) * 0.3;   // At most 30% of image
+        
+        return size > minSize && 
+               size < maxSize &&
+               aspectRatio > 0.2 && 
+               aspectRatio < 5.0 &&
+               width > 10 && height > 10;
     });
     
-    // Analyze colors of detected tiles
-    const ctx2 = document.createElement('canvas').getContext('2d');
-    ctx2.canvas.width = currentImage.width;
-    ctx2.canvas.height = currentImage.height;
-    ctx2.drawImage(currentImage, 0, 0);
-    const currentData = ctx2.getImageData(0, 0, currentImage.width, currentImage.height);
+    // Extract tile images
+    return extractTileImages(validTiles, canvas);
+}
+
+/**
+ * Detects tiles using edge detection as fallback
+ */
+async function detectTilesByEdges(canvas, img) {
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const processed = preprocessForTileDetectionImproved(imageData);
     
-    tiles.forEach(tile => {
-        tile.color = detectTileColor(tile, currentData);
+    const regions = findConnectedRegions(processed);
+    
+    // More lenient filtering for handheld photos
+    const validTiles = regions.filter(region => {
+        const width = region.bounds.maxX - region.bounds.minX;
+        const height = region.bounds.maxY - region.bounds.minY;
+        const size = region.pixels.length;
+        const aspectRatio = width / height;
+        
+        const minSize = Math.min(canvas.width, canvas.height) * 0.005; // Even smaller minimum
+        const maxSize = Math.min(canvas.width, canvas.height) * 0.4;
+        
+        return size > minSize && 
+               size < maxSize &&
+               aspectRatio > 0.1 && 
+               aspectRatio < 10.0 &&
+               width > 5 && height > 5;
     });
     
-    return tiles;
+    return extractTileImages(validTiles, canvas);
+}
+
+/**
+ * Color quantization to reduce color complexity
+ */
+function quantizeColors(imageData, numColors) {
+    const data = new Uint8ClampedArray(imageData.data);
+    const step = 256 / Math.cbrt(numColors);
+    
+    for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.floor(data[i] / step) * step;     // R
+        data[i + 1] = Math.floor(data[i + 1] / step) * step; // G
+        data[i + 2] = Math.floor(data[i + 2] / step) * step; // B
+    }
+    
+    return new ImageData(data, imageData.width, imageData.height);
+}
+
+/**
+ * Find regions of similar colors
+ */
+function findColorRegions(imageData) {
+    const width = imageData.width;
+    const height = imageData.height;
+    const visited = new Array(width * height).fill(false);
+    const regions = [];
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const idx = y * width + x;
+            
+            if (!visited[idx]) {
+                const pixelIdx = idx * 4;
+                const r = imageData.data[pixelIdx];
+                const g = imageData.data[pixelIdx + 1];
+                const b = imageData.data[pixelIdx + 2];
+                
+                // Start flood fill for this color
+                const region = colorFloodFill(imageData, x, y, visited, r, g, b);
+                if (region.pixels.length > 100) { // Minimum region size
+                    regions.push(region);
+                }
+            }
+        }
+    }
+    
+    return regions;
+}
+
+/**
+ * Flood fill for similar colors with tolerance
+ */
+function colorFloodFill(imageData, startX, startY, visited, targetR, targetG, targetB) {
+    const width = imageData.width;
+    const height = imageData.height;
+    const stack = [[startX, startY]];
+    const pixels = [];
+    const tolerance = 20; // Color tolerance
+    
+    let minX = startX, maxX = startX;
+    let minY = startY, maxY = startY;
+    
+    while (stack.length > 0) {
+        const [x, y] = stack.pop();
+        
+        if (x < 0 || x >= width || y < 0 || y >= height) continue;
+        
+        const idx = y * width + x;
+        if (visited[idx]) continue;
+        
+        const pixelIdx = idx * 4;
+        const r = imageData.data[pixelIdx];
+        const g = imageData.data[pixelIdx + 1];
+        const b = imageData.data[pixelIdx + 2];
+        
+        // Check if color is similar enough
+        const colorDiff = Math.abs(r - targetR) + Math.abs(g - targetG) + Math.abs(b - targetB);
+        if (colorDiff > tolerance * 3) continue;
+        
+        visited[idx] = true;
+        pixels.push([x, y]);
+        
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y);
+        maxY = Math.max(maxY, y);
+        
+        // Add neighbors
+        stack.push([x + 1, y]);
+        stack.push([x - 1, y]);
+        stack.push([x, y + 1]);
+        stack.push([x, y - 1]);
+    }
+    
+    return {
+        pixels,
+        bounds: { minX, maxX, minY, maxY },
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2
+    };
+}
+
+/**
+ * Extract tile images from regions
+ */
+function extractTileImages(regions, canvas) {
+    const extractedTiles = [];
+    
+    for (const region of regions) {
+        const padding = Math.max(5, Math.min(canvas.width, canvas.height) * 0.02); // Dynamic padding
+        const x = Math.max(0, region.bounds.minX - padding);
+        const y = Math.max(0, region.bounds.minY - padding);
+        const width = Math.min(canvas.width - x, region.bounds.maxX - region.bounds.minX + padding * 2);
+        const height = Math.min(canvas.height - y, region.bounds.maxY - region.bounds.minY + padding * 2);
+        
+        if (width > 10 && height > 10) { // Minimum size check
+            const tileCanvas = document.createElement('canvas');
+            tileCanvas.width = width;
+            tileCanvas.height = height;
+            const tileCtx = tileCanvas.getContext('2d');
+            
+            tileCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+            
+            extractedTiles.push({
+                imageData: tileCanvas.toDataURL('image/jpeg', 0.9),
+                bounds: region.bounds,
+                position: { x: region.centerX, y: region.centerY }
+            });
+        }
+    }
+    
+    return extractedTiles;
+}
+
+/**
+ * Merge duplicate tiles from multiple detection strategies
+ */
+function mergeDuplicateTiles(tiles) {
+    if (tiles.length === 0) return [];
+    
+    const merged = [];
+    const used = new Set();
+    
+    for (let i = 0; i < tiles.length; i++) {
+        if (used.has(i)) continue;
+        
+        const tile1 = tiles[i];
+        const duplicates = [i];
+        
+        // Find overlapping tiles
+        for (let j = i + 1; j < tiles.length; j++) {
+            if (used.has(j)) continue;
+            
+            const tile2 = tiles[j];
+            const distance = Math.sqrt(
+                Math.pow(tile1.position.x - tile2.position.x, 2) +
+                Math.pow(tile1.position.y - tile2.position.y, 2)
+            );
+            
+            // If tiles are very close, consider them duplicates
+            const avgSize = Math.sqrt(
+                (tile1.bounds.maxX - tile1.bounds.minX) * (tile1.bounds.maxY - tile1.bounds.minY) +
+                (tile2.bounds.maxX - tile2.bounds.minX) * (tile2.bounds.maxY - tile2.bounds.minY)
+            ) / 2;
+            
+            if (distance < avgSize * 0.5) { // Within 50% of average size
+                duplicates.push(j);
+            }
+        }
+        
+        // Mark all duplicates as used
+        duplicates.forEach(idx => used.add(idx));
+        
+        // Keep the largest tile from duplicates
+        const bestTile = duplicates
+            .map(idx => tiles[idx])
+            .reduce((best, current) => {
+                const currentSize = (current.bounds.maxX - current.bounds.minX) * 
+                                  (current.bounds.maxY - current.bounds.minY);
+                const bestSize = (best.bounds.maxX - best.bounds.minX) * 
+                               (best.bounds.maxY - best.bounds.minY);
+                return currentSize > bestSize ? current : best;
+            });
+        
+        merged.push(bestTile);
+    }
+    
+    console.log(`Merged ${tiles.length} detected tiles into ${merged.length} unique tiles`);
+    return merged;
+}
+
+/**
+ * Improved preprocessing that better handles touching tiles
+ */
+function preprocessForTileDetectionImproved(imageData) {
+    const data = new Uint8ClampedArray(imageData.data);
+    const width = imageData.width;
+    const height = imageData.height;
+    
+    // Convert to grayscale
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
+    }
+    
+    // Apply adaptive thresholding instead of edge detection
+    // This works better for tiles that may have similar colors touching
+    const processed = new Uint8ClampedArray(data.length);
+    const windowSize = 15;
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4;
+            
+            // Calculate local mean in window
+            let sum = 0;
+            let count = 0;
+            
+            for (let dy = -windowSize; dy <= windowSize; dy++) {
+                for (let dx = -windowSize; dx <= windowSize; dx++) {
+                    const ny = y + dy;
+                    const nx = x + dx;
+                    
+                    if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                        const nidx = (ny * width + nx) * 4;
+                        sum += data[nidx];
+                        count++;
 }
 
 /**
  * Finds connected regions in the image (blob detection)
+ * Used by the improved tile detection system
  */
 function findConnectedRegions(imageData) {
     const width = imageData.width;
@@ -222,143 +509,489 @@ function floodFill(imageData, startX, startY, visited) {
         centerY: (minY + maxY) / 2
     };
 }
+                }
+            }
+            
+            const localMean = sum / count;
+            const threshold = localMean - 10; // Adaptive threshold
+            
+            const value = data[idx] > threshold ? 255 : 0;
+            
+            processed[idx] = value;
+            processed[idx + 1] = value;
+            processed[idx + 2] = value;
+            processed[idx + 3] = 255;
+        }
+    }
+    
+    return new ImageData(processed, width, height);
+}
 
 /**
- * Detects the dominant color of a tile
+ * Grid-based splitting for when tiles touch completely
  */
-function detectTileColor(tile, imageData) {
-    const colorCounts = {};
-    const width = imageData.width;
+function attemptGridBasedSplitting(canvas, img) {
+    console.log('Attempting grid-based splitting for touching tiles...');
     
-    // Sample pixels in the tile region
-    tile.pixels.forEach(([x, y]) => {
-        const idx = (y * width + x) * 4;
-        const r = imageData.data[idx];
-        const g = imageData.data[idx + 1];
-        const b = imageData.data[idx + 2];
+    // Try to detect a regular grid pattern
+    // Estimate tile size based on image dimensions and assume a reasonable grid
+    const estimatedTileSize = Math.min(canvas.width, canvas.height) / 8; // Assume max 8x8 grid
+    const minTileSize = 50; // Minimum reasonable tile size
+    const maxTileSize = Math.min(canvas.width, canvas.height) / 3; // Maximum reasonable tile size
+    
+    const tileSize = Math.max(minTileSize, Math.min(maxTileSize, estimatedTileSize));
+    
+    const cols = Math.floor(canvas.width / tileSize);
+    const rows = Math.floor(canvas.height / tileSize);
+    
+    const extractedTiles = [];
+    
+    // Extract grid-based tiles
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const x = col * tileSize;
+            const y = row * tileSize;
+            const width = Math.min(tileSize, canvas.width - x);
+            const height = Math.min(tileSize, canvas.height - y);
+            
+            // Check if this tile area contains enough content
+            const ctx = canvas.getContext('2d');
+            const tileData = ctx.getImageData(x, y, width, height);
+            
+            if (tileContainsContent(tileData)) {
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = width;
+                tileCanvas.height = height;
+                const tileCtx = tileCanvas.getContext('2d');
+                
+                tileCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+                
+                extractedTiles.push({
+                    imageData: tileCanvas.toDataURL('image/jpeg', 0.9),
+                    bounds: { minX: x, maxX: x + width, minY: y, maxY: y + height },
+                    position: { x: x + width / 2, y: y + height / 2 }
+                });
+            }
+        }
+    }
+    
+    console.log(`Grid-based splitting found ${extractedTiles.length} potential tiles`);
+    return extractedTiles;
+}
+
+/**
+ * Check if a tile area contains actual content (not just background)
+ */
+function tileContainsContent(imageData) {
+    const data = imageData.data;
+    let colorVariance = 0;
+    let meanR = 0, meanG = 0, meanB = 0;
+    let count = 0;
+    
+    // Calculate mean color
+    for (let i = 0; i < data.length; i += 4) {
+        meanR += data[i];
+        meanG += data[i + 1];
+        meanB += data[i + 2];
+        count++;
+    }
+    
+    meanR /= count;
+    meanG /= count;
+    meanB /= count;
+    
+    // Calculate variance
+    for (let i = 0; i < data.length; i += 4) {
+        const rDiff = data[i] - meanR;
+        const gDiff = data[i + 1] - meanG;
+        const bDiff = data[i + 2] - meanB;
+        colorVariance += rDiff * rDiff + gDiff * gDiff + bDiff * bDiff;
+    }
+    
+    colorVariance /= count;
+    
+    // If variance is too low, it's probably background
+    return colorVariance > 1000; // Threshold for content detection
+}
+
+/**
+ * Creates a relative position descriptor instead of precise grid coordinates
+ * This accounts for handheld photography variations
+ */
+function createRelativePositionDescriptor(pixelPos, allTiles, imageWidth, imageHeight) {
+    if (allTiles.length === 0) {
+        return { 
+            relativeX: pixelPos.x / imageWidth, 
+            relativeY: pixelPos.y / imageHeight,
+            nearbyTiles: []
+        };
+    }
+    
+    // Calculate relative position as percentage of image
+    const relativeX = pixelPos.x / imageWidth;
+    const relativeY = pixelPos.y / imageHeight;
+    
+    // Find nearby tiles (helps with matching across photos)
+    const nearbyTiles = allTiles
+        .filter(tile => tile.position.x !== pixelPos.x || tile.position.y !== pixelPos.y)
+        .map(tile => ({
+            distance: Math.sqrt(
+                Math.pow(tile.position.x - pixelPos.x, 2) + 
+                Math.pow(tile.position.y - pixelPos.y, 2)
+            ),
+            relativeAngle: Math.atan2(
+                tile.position.y - pixelPos.y, 
+                tile.position.x - pixelPos.x
+            ),
+            tile: tile
+        }))
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 4); // Keep 4 closest neighbors
+    
+    return {
+        relativeX,
+        relativeY,
+        nearbyTiles: nearbyTiles.map(nt => ({
+            distance: nt.distance / Math.max(imageWidth, imageHeight), // Normalize distance
+            angle: nt.relativeAngle,
+            color: nt.tile.color || 'unknown',
+            shape: nt.tile.shape || 'unknown'
+        }))
+    };
+}
+
+/**
+ * Find new tiles by comparing current and previous tile sets
+ * Robust matching for handheld photography - uses visual similarity, not precise positioning
+ */
+function findNewTiles(previousTiles, currentTiles) {
+    console.log(`Comparing ${currentTiles.length} current tiles with ${previousTiles.length} previous tiles (handheld mode)`);
+    
+    if (previousTiles.length === 0) {
+        console.log('No previous tiles, all current tiles are considered new');
+        return currentTiles;
+    }
+    
+    const newTiles = [];
+    
+    for (const currentTile of currentTiles) {
+        // Find the best matching tile from previous image
+        const bestMatch = findBestMatchingTile(currentTile, previousTiles);
         
-        // Classify color
-        const colorName = classifyColor(r, g, b);
-        colorCounts[colorName] = (colorCounts[colorName] || 0) + 1;
-    });
-    
-    // Return most common color
-    let maxCount = 0;
-    let dominantColor = 'unknown';
-    for (const [color, count] of Object.entries(colorCounts)) {
-        if (count > maxCount) {
-            maxCount = count;
-            dominantColor = color;
-        }
-    }
-    
-    return dominantColor;
-}
-
-/**
- * Classifies RGB values into custom 3D-printed Qwirkle colors
- * Custom colors: Silver, Purple, Orange, Blue, Pink, Purple-Blue
- */
-function classifyColor(r, g, b) {
-    // Convert to HSV for better color classification
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const delta = max - min;
-    const value = max / 255;
-    const saturation = max === 0 ? 0 : delta / max;
-    
-    // Silver - low saturation, high value
-    if (saturation < 0.15 && value > 0.5) return 'silver';
-    
-    // Too dark or no color
-    if (delta < 30) return 'unknown';
-    
-    let hue = 0;
-    if (delta !== 0) {
-        if (max === r) {
-            hue = 60 * (((g - b) / delta) % 6);
-        } else if (max === g) {
-            hue = 60 * (((b - r) / delta) + 2);
+        if (!bestMatch || bestMatch.confidence < 0.6) {
+            console.log(`Found new tile: ${currentTile.color} ${currentTile.shape} (confidence: ${bestMatch?.confidence || 0})`);
+            newTiles.push(currentTile);
         } else {
-            hue = 60 * (((r - g) / delta) + 4);
+            console.log(`Matched existing tile: ${currentTile.color} ${currentTile.shape} with confidence ${bestMatch.confidence}`);
         }
     }
     
-    if (hue < 0) hue += 360;
-    
-    // Classify based on hue for custom color set
-    if (hue >= 15 && hue < 45) return 'orange';       // Orange
-    if (hue >= 300 && hue < 360) return 'pink';        // Pink (magenta range)
-    if (hue >= 180 && hue < 240) return 'blue';        // Blue
-    if (hue >= 240 && hue < 270) return 'purple-blue'; // Purple-Blue
-    if (hue >= 270 && hue < 300) return 'purple';      // Purple
-    
-    return 'unknown';
+    console.log(`Identified ${newTiles.length} new tiles`);
+    return newTiles;
 }
 
 /**
- * Estimates score based on detected tiles
- * This is a simplified version - actual implementation would need more sophisticated analysis
+ * Find the best matching tile based on multiple criteria
+ * Uses visual similarity, size, and relative position
  */
-function calculateScoreFromTiles(tiles) {
-    if (tiles.length === 0) {
+function findBestMatchingTile(targetTile, candidateTiles) {
+    let bestMatch = null;
+    let bestScore = 0;
+    
+    for (const candidate of candidateTiles) {
+        const score = calculateTileMatchScore(targetTile, candidate);
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMatch = {
+                tile: candidate,
+                confidence: score
+            };
+        }
+    }
+    
+    return bestMatch;
+}
+
+/**
+ * Calculate how well two tiles match across different photos
+ * Considers color, shape, relative position, and size
+ */
+function calculateTileMatchScore(tile1, tile2) {
+    let score = 0;
+    let totalWeight = 0;
+    
+    // 1. Color and Shape matching (most important)
+    const colorWeight = 40;
+    const shapeWeight = 40;
+    
+    if (tile1.color === tile2.color && tile1.color !== 'unknown') {
+        score += colorWeight;
+    }
+    totalWeight += colorWeight;
+    
+    if (tile1.shape === tile2.shape && tile1.shape !== 'unknown') {
+        score += shapeWeight;
+    }
+    totalWeight += shapeWeight;
+    
+    // 2. Relative position similarity (important for handheld photos)
+    const positionWeight = 15;
+    const positionSimilarity = calculatePositionSimilarity(
+        tile1.positionDescriptor, 
+        tile2.positionDescriptor
+    );
+    score += positionSimilarity * positionWeight;
+    totalWeight += positionWeight;
+    
+    // 3. Size similarity (camera distance can change)
+    const sizeWeight = 5;
+    const sizeSimilarity = calculateSizeSimilarity(tile1.size, tile2.size);
+    score += sizeSimilarity * sizeWeight;
+    totalWeight += sizeWeight;
+    
+    // Return normalized score (0-1)
+    return totalWeight > 0 ? score / totalWeight : 0;
+}
+
+/**
+ * Calculate how similar the relative positions are between two tiles
+ * Accounts for camera movement and angle changes
+ */
+function calculatePositionSimilarity(pos1, pos2) {
+    // Basic relative position similarity
+    const xDiff = Math.abs(pos1.relativeX - pos2.relativeX);
+    const yDiff = Math.abs(pos1.relativeY - pos2.relativeY);
+    const positionDiff = Math.sqrt(xDiff * xDiff + yDiff * yDiff);
+    
+    // Allow for significant position variation due to handheld photography
+    const positionTolerance = 0.3; // 30% of image can shift
+    const positionSimilarity = Math.max(0, 1 - (positionDiff / positionTolerance));
+    
+    // Nearby tiles pattern matching (helps with consistency)
+    let nearbyTileScore = 0;
+    let nearbyTileWeight = 0;
+    
+    // Check if nearby tiles pattern is similar
+    const maxNearbyTiles = Math.min(pos1.nearbyTiles.length, pos2.nearbyTiles.length);
+    
+    for (let i = 0; i < maxNearbyTiles; i++) {
+        const nearby1 = pos1.nearbyTiles[i];
+        const nearby2 = pos2.nearbyTiles[i];
+        
+        // Check if colors/shapes of nearby tiles match
+        if (nearby1.color === nearby2.color && nearby1.color !== 'unknown') {
+            nearbyTileScore += 1;
+        }
+        if (nearby1.shape === nearby2.shape && nearby1.shape !== 'unknown') {
+            nearbyTileScore += 1;
+        }
+        nearbyTileWeight += 2; // Max 2 points per nearby tile
+    }
+    
+    const nearbyTileSimilarity = nearbyTileWeight > 0 ? nearbyTileScore / nearbyTileWeight : 0;
+    
+    // Combine position and nearby tiles similarity
+    return (positionSimilarity * 0.7) + (nearbyTileSimilarity * 0.3);
+}
+
+/**
+ * Calculate size similarity between two tiles
+ * Accounts for camera distance changes
+ */
+function calculateSizeSimilarity(size1, size2) {
+    if (size1 === 0 || size2 === 0) return 0;
+    
+    const sizeRatio = Math.min(size1, size2) / Math.max(size1, size2);
+    
+    // Allow for significant size variation due to camera distance changes
+    // If size ratio is above 0.5, we consider it similar enough
+    return Math.max(0, (sizeRatio - 0.3) / 0.7); // Linear scale from 0.3-1.0 to 0-1
+}
+
+/**
+ * Calculate Qwirkle score based on new tiles and board state
+ * Adapted for flexible positioning from handheld photography
+ */
+function calculateQwirkleScore(newTiles, allCurrentTiles) {
+    if (newTiles.length === 0) {
         return 0;
     }
     
-    // Sort tiles by position to detect lines
-    const sortedByX = [...tiles].sort((a, b) => a.centerX - b.centerX);
-    const sortedByY = [...tiles].sort((a, b) => a.centerY - b.centerY);
+    console.log(`Calculating score for ${newTiles.length} new tiles (handheld mode)`);
     
-    // Detect if tiles form a line (horizontal or vertical)
-    const isHorizontalLine = checkIfLine(sortedByX, 'x');
-    const isVerticalLine = checkIfLine(sortedByY, 'y');
+    // For handheld photography, we use a simpler but more robust scoring approach
+    // Instead of trying to determine exact lines, we estimate based on tile placement patterns
     
-    if (isHorizontalLine || isVerticalLine) {
-        // Tiles form a single line
-        const lineLength = tiles.length;
+    let totalScore = 0;
+    
+    // Basic scoring: each new tile gets points based on likely line formations
+    for (const newTile of newTiles) {
+        let tileScore = 1; // Minimum score for placing a tile
         
-        // In Qwirkle, you also score for existing tiles in the line
-        // For simplicity, we estimate 2-3 additional tiles per placed tile
-        const estimatedLineLength = lineLength + Math.floor(lineLength * 2);
+        // Find tiles that are likely connected to this new tile
+        const connectedTiles = findLikelyConnectedTiles(newTile, allCurrentTiles);
         
-        // Check for Qwirkle (6 tiles)
-        if (estimatedLineLength >= 6) {
-            return estimatedLineLength + 6; // Bonus points
+        if (connectedTiles.length > 0) {
+            // Score based on estimated line length
+            const estimatedLineLength = connectedTiles.length + 1; // +1 for the new tile
+            tileScore = estimatedLineLength;
+            
+            // Qwirkle bonus for long lines
+            if (estimatedLineLength >= 6) {
+                tileScore += 6; // Qwirkle bonus
+                console.log(`Possible Qwirkle detected: ${estimatedLineLength} tiles with bonus`);
+            }
+            
+            console.log(`New tile connects to ${connectedTiles.length} tiles, line score: ${tileScore}`);
+        } else {
+            console.log(`Isolated new tile: ${tileScore} point`);
         }
         
-        return estimatedLineLength;
-    } else {
-        // Multiple tiles not in a straight line
-        // Estimate score as number of tiles * average line length of 3
-        return tiles.length * 3;
+        totalScore += tileScore;
     }
+    
+    // If multiple tiles were placed together, they might form intersecting lines
+    // Add a small bonus for multiple tile placement
+    if (newTiles.length > 1) {
+        const multiTileBonus = Math.floor(newTiles.length / 2);
+        totalScore += multiTileBonus;
+        console.log(`Multi-tile placement bonus: +${multiTileBonus}`);
+    }
+    
+    console.log(`Total calculated score: ${totalScore}`);
+    return totalScore;
 }
 
 /**
- * Checks if tiles form a line
+ * Find tiles that are likely connected to the given tile
+ * Uses relaxed spatial and color/shape analysis for handheld photos
  */
-function checkIfLine(sortedTiles, axis) {
-    if (sortedTiles.length < 2) return true;
+function findLikelyConnectedTiles(centerTile, allTiles) {
+    const connectedTiles = [];
+    const maxConnectionDistance = 0.15; // 15% of image size for connection
     
-    const positions = sortedTiles.map(t => axis === 'x' ? t.centerX : t.centerY);
-    const otherPositions = sortedTiles.map(t => axis === 'x' ? t.centerY : t.centerX);
+    // Group tiles by proximity to center tile
+    const nearbyTiles = allTiles
+        .filter(tile => tile.id !== centerTile.id)
+        .map(tile => ({
+            tile: tile,
+            distance: Math.sqrt(
+                Math.pow(tile.positionDescriptor.relativeX - centerTile.positionDescriptor.relativeX, 2) +
+                Math.pow(tile.positionDescriptor.relativeY - centerTile.positionDescriptor.relativeY, 2)
+            )
+        }))
+        .filter(item => item.distance <= maxConnectionDistance)
+        .sort((a, b) => a.distance - b.distance);
     
-    // Check if other axis positions are similar (within threshold)
-    const avgOther = otherPositions.reduce((a, b) => a + b, 0) / otherPositions.length;
-    const threshold = 50; // pixels
+    // Look for potential lines in different directions
+    const directions = [
+        { name: 'horizontal', angle: 0, tolerance: Math.PI / 6 },      // ±30 degrees
+        { name: 'vertical', angle: Math.PI / 2, tolerance: Math.PI / 6 } // ±30 degrees
+    ];
     
-    const isAligned = otherPositions.every(pos => Math.abs(pos - avgOther) < threshold);
-    
-    if (!isAligned) return false;
-    
-    // Check if spacing is relatively consistent
-    const gaps = [];
-    for (let i = 1; i < positions.length; i++) {
-        gaps.push(positions[i] - positions[i - 1]);
+    for (const direction of directions) {
+        const tilesInDirection = findTilesInDirection(
+            centerTile, 
+            nearbyTiles, 
+            direction.angle, 
+            direction.tolerance
+        );
+        
+        // Check if these tiles could form a valid Qwirkle line
+        if (tilesInDirection.length > 0) {
+            const candidateLine = [centerTile, ...tilesInDirection.map(item => item.tile)];
+            if (couldBeValidQwirkleLine(candidateLine)) {
+                connectedTiles.push(...tilesInDirection.map(item => item.tile));
+                console.log(`Found ${tilesInDirection.length} tiles in ${direction.name} direction`);
+            }
+        }
     }
     
-    const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-    const consistentSpacing = gaps.every(gap => Math.abs(gap - avgGap) < avgGap * 0.5);
+    // Remove duplicates
+    return [...new Set(connectedTiles)];
+}
+
+/**
+ * Find tiles that lie roughly in a given direction from the center tile
+ */
+function findTilesInDirection(centerTile, nearbyTiles, targetAngle, tolerance) {
+    const tilesInDirection = [];
     
-    return consistentSpacing;
+    for (const item of nearbyTiles) {
+        const tile = item.tile;
+        
+        // Calculate angle from center to this tile
+        const deltaX = tile.positionDescriptor.relativeX - centerTile.positionDescriptor.relativeX;
+        const deltaY = tile.positionDescriptor.relativeY - centerTile.positionDescriptor.relativeY;
+        const angle = Math.atan2(deltaY, deltaX);
+        
+        // Normalize angle difference
+        let angleDiff = Math.abs(angle - targetAngle);
+        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+        
+        // Also check the opposite direction (for full line)
+        let oppositeAngleDiff = Math.abs(angle - (targetAngle + Math.PI));
+        if (oppositeAngleDiff > Math.PI) oppositeAngleDiff = 2 * Math.PI - oppositeAngleDiff;
+        
+        const minAngleDiff = Math.min(angleDiff, oppositeAngleDiff);
+        
+        if (minAngleDiff <= tolerance) {
+            tilesInDirection.push(item);
+        }
+    }
+    
+    return tilesInDirection;
+}
+
+/**
+ * Check if tiles could form a valid Qwirkle line (relaxed check for handheld photos)
+ * Allows for some uncertainty in classification
+ */
+function couldBeValidQwirkleLine(tiles) {
+    if (tiles.length <= 1) return true;
+    
+    // Get tiles with confident classifications
+    const confidentTiles = tiles.filter(t => 
+        t.color !== 'unknown' && 
+        t.shape !== 'unknown' && 
+        (t.colorConfidence || 1) > 0.5 && 
+        (t.shapeConfidence || 1) > 0.5
+    );
+    
+    if (confidentTiles.length < 2) {
+        // Not enough confident classifications, assume it's valid
+        return true;
+    }
+    
+    const colors = confidentTiles.map(t => t.color);
+    const shapes = confidentTiles.map(t => t.shape);
+    
+    const uniqueColors = [...new Set(colors)];
+    const uniqueShapes = [...new Set(shapes)];
+    
+    // Relaxed validation: allow some flexibility for handheld photo inaccuracies
+    const allSameColorVariation = uniqueColors.length <= Math.max(1, Math.ceil(colors.length * 0.2)); // Allow 20% variation
+    const allSameShapeVariation = uniqueShapes.length <= Math.max(1, Math.ceil(shapes.length * 0.2)); // Allow 20% variation
+    
+    const differentColorsGood = uniqueColors.length >= Math.max(2, colors.length * 0.8); // At least 80% different
+    const differentShapesGood = uniqueShapes.length >= Math.max(2, shapes.length * 0.8); // At least 80% different
+    
+    // Valid line: mostly same color with mostly different shapes, OR mostly same shape with mostly different colors
+    const likelySameColor = allSameColorVariation && differentShapesGood;
+    const likelySameShape = allSameShapeVariation && differentColorsGood;
+    
+    return likelySameColor || likelySameShape;
+}
+
+/**
+ * Loads an image from a data URL
+ */
+function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+    });
 }
