@@ -64,6 +64,9 @@ function startGame() {
 // Camera Functions
 async function initializeCamera() {
     try {
+        // Stop any existing camera first
+        stopCamera();
+        
         const constraints = {
             video: {
                 facingMode: 'environment',
@@ -75,6 +78,7 @@ async function initializeCamera() {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         const video = document.getElementById('camera-preview');
         video.srcObject = stream;
+        video.style.display = 'block'; // Make sure camera is visible
         gameState.cameraStream = stream;
         
         document.getElementById('turn-instruction').textContent = 
@@ -89,15 +93,10 @@ async function initializeCamera() {
 function capturePhoto() {
     const video = document.getElementById('camera-preview');
     
-    // If camera isn't running, start it first
-    if (!gameState.cameraStream || video.style.display === 'none') {
+    // Camera should already be running for photo taking
+    if (!gameState.cameraStream) {
+        alert('Camera not ready. Please wait a moment.');
         initializeCamera();
-        // Wait a moment for camera to start, then capture
-        setTimeout(() => {
-            if (gameState.cameraStream) {
-                actuallyTakePhoto();
-            }
-        }, 1000);
         return;
     }
     
@@ -199,10 +198,11 @@ function startNewTurn() {
 }
 
 function retakePhoto() {
-    // Restart camera for retaking photo
-    initializeCamera();
+    // Clear the still image and restart live camera
     document.getElementById('captured-photo').style.display = 'none';
-    document.getElementById('camera-preview').style.display = 'block';
+    
+    // Start live camera again
+    initializeCamera();
     
     // Show take photo button, hide retake button
     const takePhotoBtn = document.querySelector('#action-buttons .btn-primary');
@@ -221,15 +221,9 @@ function startNewTurn() {
     takePhotoBtn.textContent = 'Take Photo';
     document.getElementById('retake-btn').style.display = 'none';
     
-    // Show previous photo instead of starting camera immediately
-    if (gameState.previousPhoto) {
-        showCapturedPhoto(gameState.previousPhoto.url);
-        document.getElementById('camera-preview').style.display = 'none';
-    } else {
-        // Only for very first turn, start camera
-        initializeCamera();
-        document.getElementById('captured-photo').style.display = 'none';
-    }
+    // Always start live camera for new turn
+    initializeCamera();
+    document.getElementById('captured-photo').style.display = 'none';
 }
 
 function adjustScore(delta) {
