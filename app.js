@@ -78,9 +78,7 @@ async function initializeCamera() {
         gameState.cameraStream = stream;
         
         document.getElementById('turn-instruction').textContent = 
-            gameState.previousPhoto ? 
-            'Place tiles and take a photo of the board' : 
-            'Take a photo of the empty board to start';
+            'Place your tiles and take a photo of the board';
             
     } catch (error) {
         console.error('Camera access error:', error);
@@ -115,13 +113,11 @@ async function processPhoto(photoUrl, canvas) {
     try {
         let detectedScore = 0;
         
-        if (gameState.previousPhoto) {
-            // Compare photos and detect new tiles
-            detectedScore = await detectAndScoreTiles(
-                gameState.previousPhoto.imageData,
-                gameState.currentPhoto.imageData
-            );
-        }
+        // Always try to detect and score tiles (for first player, this will detect all tiles placed)
+        detectedScore = await detectAndScoreTiles(
+            gameState.previousPhoto?.imageData || null,
+            gameState.currentPhoto.imageData
+        );
         
         hideLoading();
         
@@ -217,9 +213,7 @@ function updateGameUI() {
     const currentPlayer = gameState.players[gameState.currentPlayerIndex];
     document.getElementById('current-player-name').textContent = `${currentPlayer.name}'s Turn`;
     
-    const instruction = gameState.previousPhoto ? 
-        'Place your tiles, then take a photo of the board' : 
-        'Take a photo of the empty board to start';
+    const instruction = 'Place your tiles, then take a photo of the board';
     document.getElementById('turn-instruction').textContent = instruction;
 }
 
