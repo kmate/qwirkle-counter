@@ -198,8 +198,14 @@
                 <div id="captured-photo" class="captured-photo"></div>
             </div>
 
+            <div class="button-group" id="action-buttons">
+                <button class="btn btn-primary" onclick="capturePhoto()">Take Photo</button>
+                <button class="btn btn-secondary" onclick="retakePhoto()" id="retake-btn" style="display: none;">Retake Photo</button>
+                <button class="btn btn-secondary" onclick="swapTiles()">Swap Tiles (0 pts)</button>
+            </div>
+
             <div class="turn-info">
-                <p id="turn-instruction">Take a photo of the board after placing tiles</p>
+                <p id="turn-instruction">Place your tiles, then take a photo of the board</p>
             </div>
 
             <div class="manual-score-section" id="manual-score-section" style="display: none;">
@@ -211,11 +217,6 @@
                     <button class="btn btn-small" onclick="adjustScore(1)">+1</button>
                 </div>
                 <button class="btn btn-primary" onclick="confirmScore()">Confirm Score</button>
-            </div>
-
-            <div class="button-group" id="action-buttons">
-                <button class="btn btn-secondary" onclick="swapTiles()">Swap Tiles (0 pts)</button>
-                <button class="btn btn-primary" onclick="capturePhoto()">Take Photo</button>
             </div>
 
             <button class="btn btn-outline btn-small" onclick="endGame()">End Game</button>

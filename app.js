@@ -88,6 +88,24 @@ async function initializeCamera() {
 
 function capturePhoto() {
     const video = document.getElementById('camera-preview');
+    
+    // If camera isn't running, start it first
+    if (!gameState.cameraStream || video.style.display === 'none') {
+        initializeCamera();
+        // Wait a moment for camera to start, then capture
+        setTimeout(() => {
+            if (gameState.cameraStream) {
+                actuallyTakePhoto();
+            }
+        }, 1000);
+        return;
+    }
+    
+    actuallyTakePhoto();
+}
+
+function actuallyTakePhoto() {
+    const video = document.getElementById('camera-preview');
     const canvas = document.getElementById('photo-canvas');
     const context = canvas.getContext('2d');
     
@@ -106,6 +124,15 @@ async function processPhoto(photoUrl, canvas) {
         url: photoUrl,
         imageData: canvas.toDataURL('image/jpeg', 0.95)
     };
+    
+    // Stop camera and show captured photo
+    stopCamera();
+    showCapturedPhoto(photoUrl);
+    
+    // Show retake button, hide take photo button
+    document.getElementById('retake-btn').style.display = 'inline-block';
+    const takePhotoBtn = document.querySelector('#action-buttons .btn-primary');
+    takePhotoBtn.style.display = 'none';
     
     // Show loading
     showLoading('Analyzing tiles...');
@@ -127,11 +154,6 @@ async function processPhoto(photoUrl, canvas) {
         document.getElementById('manual-score-section').style.display = 'block';
         document.getElementById('action-buttons').style.display = 'none';
         
-        // Show captured photo preview
-        const capturedDiv = document.getElementById('captured-photo');
-        capturedDiv.innerHTML = `<img src="${photoUrl}" alt="Captured board">`;
-        capturedDiv.classList.remove('empty');
-        
     } catch (error) {
         hideLoading();
         console.error('Error processing photo:', error);
@@ -140,6 +162,73 @@ async function processPhoto(photoUrl, canvas) {
         document.getElementById('manual-score-input').value = '0';
         document.getElementById('manual-score-section').style.display = 'block';
         document.getElementById('action-buttons').style.display = 'none';
+    }
+}
+
+function stopCamera() {
+    if (gameState.cameraStream) {
+        gameState.cameraStream.getTracks().forEach(track => track.stop());
+        gameState.cameraStream = null;
+    }
+    
+    // Hide camera video
+    const video = document.getElementById('camera-preview');
+    video.style.display = 'none';
+}
+
+function showCapturedPhoto(photoUrl) {
+    const capturedDiv = document.getElementById('captured-photo');
+    capturedDiv.innerHTML = `<img src="${photoUrl}" alt="Captured board" style="width: 100%; border-radius: 8px;">`;
+    capturedDiv.classList.remove('empty');
+    capturedDiv.style.display = 'block';
+}
+
+function startNewTurn() {
+    // Show previous photo instead of starting camera immediately
+    if (gameState.previousPhoto) {
+        showCapturedPhoto(gameState.previousPhoto.url);
+        document.getElementById('camera-preview').style.display = 'none';
+    } else {
+        // Only for very first turn, start camera
+        initializeCamera();
+    }
+    
+    // Show action buttons for new turn
+    document.getElementById('manual-score-section').style.display = 'none';
+    document.getElementById('action-buttons').style.display = 'flex';
+}
+
+function retakePhoto() {
+    // Restart camera for retaking photo
+    initializeCamera();
+    document.getElementById('captured-photo').style.display = 'none';
+    document.getElementById('camera-preview').style.display = 'block';
+    
+    // Show take photo button, hide retake button
+    const takePhotoBtn = document.querySelector('#action-buttons .btn-primary');
+    takePhotoBtn.style.display = 'inline-block';
+    document.getElementById('retake-btn').style.display = 'none';
+}
+
+function startNewTurn() {
+    // Reset UI for new turn
+    document.getElementById('manual-score-section').style.display = 'none';
+    document.getElementById('action-buttons').style.display = 'flex';
+    
+    // Show take photo button, hide retake button
+    const takePhotoBtn = document.querySelector('#action-buttons .btn-primary');
+    takePhotoBtn.style.display = 'inline-block';
+    takePhotoBtn.textContent = 'Take Photo';
+    document.getElementById('retake-btn').style.display = 'none';
+    
+    // Show previous photo instead of starting camera immediately
+    if (gameState.previousPhoto) {
+        showCapturedPhoto(gameState.previousPhoto.url);
+        document.getElementById('camera-preview').style.display = 'none';
+    } else {
+        // Only for very first turn, start camera
+        initializeCamera();
+        document.getElementById('captured-photo').style.display = 'none';
     }
 }
 
@@ -195,18 +284,10 @@ function swapTiles() {
 }
 
 function nextTurn() {
-    // Hide manual score section
-    document.getElementById('manual-score-section').style.display = 'none';
-    document.getElementById('action-buttons').style.display = 'flex';
-    
-    // Clear captured photo
-    const capturedDiv = document.getElementById('captured-photo');
-    capturedDiv.innerHTML = '';
-    capturedDiv.classList.add('empty');
-    
     // Move to next player
     gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
     updateGameUI();
+    startNewTurn();
 }
 
 function updateGameUI() {

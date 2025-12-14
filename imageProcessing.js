@@ -112,10 +112,11 @@ async function detectAllTilesInImage(imageData) {
 }
 
 /**
- * Robust tile detection that handles significant camera variations
- * Much more lenient than the previous grid-based approach
+ * Fast tile detection optimized for performance
+ * Uses a single, efficient strategy instead of multiple slow ones
  */
 async function detectAndExtractTilesRobust(imageDataUrl) {
+    console.log('Starting fast tile detection...');
     const img = await loadImage(imageDataUrl);
     
     const canvas = document.createElement('canvas');
@@ -124,127 +125,92 @@ async function detectAndExtractTilesRobust(imageDataUrl) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
     
-    // Use multiple detection strategies and combine results
-    let extractedTiles = [];
+    // Use simplified edge detection only - much faster than multiple strategies
+    const extractedTiles = await detectTilesByFastEdges(canvas, img);
     
-    // Strategy 1: Color-based segmentation (works well for different colored tiles)
-    const colorSegmentedTiles = await detectTilesByColorSegmentation(canvas, img);
-    extractedTiles = extractedTiles.concat(colorSegmentedTiles);
-    
-    // Strategy 2: Edge-based detection (backup for similar colored tiles)
-    const edgeDetectedTiles = await detectTilesByEdges(canvas, img);
-    
-    // Merge and deduplicate tiles
-    const mergedTiles = mergeDuplicateTiles([...extractedTiles, ...edgeDetectedTiles]);
-    
-    console.log(`Robust detection found ${mergedTiles.length} tiles using combined strategies`);
-    return mergedTiles;
+    console.log(`Fast detection found ${extractedTiles.length} tiles`);
+    return extractedTiles;
 }
 
 /**
- * Detects tiles by segmenting different color regions
- * More reliable for Qwirkle tiles with distinct colors
+ * Fast edge-based tile detection - optimized for speed
  */
-async function detectTilesByColorSegmentation(canvas, img) {
+async function detectTilesByFastEdges(canvas, img) {
     const ctx = canvas.getContext('2d');
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Create a color-quantized version for better segmentation
-    const quantizedData = quantizeColors(imageData, 16); // Reduce to 16 main colors
+    // Simplified preprocessing - much faster
+    const processed = fastPreprocessing(imageData);
     
-    // Find connected regions of similar colors
-    const colorRegions = findColorRegions(quantizedData);
+    // Fast connected regions - smaller processing area
+    const regions = fastConnectedRegions(processed);
     
-    // Filter regions that look like tiles
-    const validTiles = colorRegions.filter(region => {
-        const width = region.bounds.maxX - region.bounds.minX;
-        const height = region.bounds.maxY - region.bounds.minY;
-        const size = region.pixels.length;
-        const aspectRatio = width / height;
-        
-        // Much more lenient filtering for handheld photos
-        const minSize = Math.min(canvas.width, canvas.height) * 0.01; // At least 1% of image
-        const maxSize = Math.min(canvas.width, canvas.height) * 0.3;   // At most 30% of image
-        
-        return size > minSize && 
-               size < maxSize &&
-               aspectRatio > 0.2 && 
-               aspectRatio < 5.0 &&
-               width > 10 && height > 10;
-    });
-    
-    // Extract tile images
-    return extractTileImages(validTiles, canvas);
-}
-
-/**
- * Detects tiles using edge detection as fallback
- */
-async function detectTilesByEdges(canvas, img) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const processed = preprocessForTileDetectionImproved(imageData);
-    
-    const regions = findConnectedRegions(processed);
-    
-    // More lenient filtering for handheld photos
+    // Quick filtering for tiles
     const validTiles = regions.filter(region => {
         const width = region.bounds.maxX - region.bounds.minX;
         const height = region.bounds.maxY - region.bounds.minY;
         const size = region.pixels.length;
-        const aspectRatio = width / height;
         
-        const minSize = Math.min(canvas.width, canvas.height) * 0.005; // Even smaller minimum
-        const maxSize = Math.min(canvas.width, canvas.height) * 0.4;
+        // Simplified filtering for speed
+        const minSize = 500; // Fixed minimum instead of calculated
+        const maxSize = canvas.width * canvas.height * 0.2; // Max 20% of image
         
         return size > minSize && 
                size < maxSize &&
-               aspectRatio > 0.1 && 
-               aspectRatio < 10.0 &&
-               width > 5 && height > 5;
+               width > 30 && height > 30 &&
+               width < canvas.width * 0.8 && height < canvas.height * 0.8;
     });
     
-    return extractTileImages(validTiles, canvas);
+    return extractTileImagesFast(validTiles, canvas);
 }
 
 /**
- * Color quantization to reduce color complexity
+ * Fast preprocessing - simplified version
  */
-function quantizeColors(imageData, numColors) {
+function fastPreprocessing(imageData) {
     const data = new Uint8ClampedArray(imageData.data);
-    const step = 256 / Math.cbrt(numColors);
+    const width = imageData.width;
+    const height = imageData.height;
+    
+    // Simple threshold instead of adaptive - much faster
+    const threshold = 128;
     
     for (let i = 0; i < data.length; i += 4) {
-        data[i] = Math.floor(data[i] / step) * step;     // R
-        data[i + 1] = Math.floor(data[i + 1] / step) * step; // G
-        data[i + 2] = Math.floor(data[i + 2] / step) * step; // B
+        // Convert to grayscale
+        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        
+        // Simple threshold
+        const value = gray > threshold ? 255 : 0;
+        
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+        data[i + 3] = 255;
     }
     
-    return new ImageData(data, imageData.width, imageData.height);
+    return new ImageData(data, width, height);
 }
 
 /**
- * Find regions of similar colors
+ * Fast connected regions - processes smaller samples
  */
-function findColorRegions(imageData) {
+function fastConnectedRegions(imageData) {
     const width = imageData.width;
     const height = imageData.height;
     const visited = new Array(width * height).fill(false);
     const regions = [];
     
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
+    // Sample every 4th pixel for speed
+    const step = 4;
+    
+    for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
             const idx = y * width + x;
+            const pixelIdx = idx * 4;
             
-            if (!visited[idx]) {
-                const pixelIdx = idx * 4;
-                const r = imageData.data[pixelIdx];
-                const g = imageData.data[pixelIdx + 1];
-                const b = imageData.data[pixelIdx + 2];
-                
-                // Start flood fill for this color
-                const region = colorFloodFill(imageData, x, y, visited, r, g, b);
-                if (region.pixels.length > 100) { // Minimum region size
+            if (!visited[idx] && imageData.data[pixelIdx] > 128) {
+                const region = fastFloodFill(imageData, x, y, visited, step);
+                if (region.pixels.length > 20) {
                     regions.push(region);
                 }
             }
@@ -255,19 +221,19 @@ function findColorRegions(imageData) {
 }
 
 /**
- * Flood fill for similar colors with tolerance
+ * Fast flood fill - limits depth to prevent slowdown
  */
-function colorFloodFill(imageData, startX, startY, visited, targetR, targetG, targetB) {
+function fastFloodFill(imageData, startX, startY, visited, step) {
     const width = imageData.width;
     const height = imageData.height;
     const stack = [[startX, startY]];
     const pixels = [];
-    const tolerance = 20; // Color tolerance
+    const maxPixels = 10000; // Limit region size to prevent slowdown
     
     let minX = startX, maxX = startX;
     let minY = startY, maxY = startY;
     
-    while (stack.length > 0) {
+    while (stack.length > 0 && pixels.length < maxPixels) {
         const [x, y] = stack.pop();
         
         if (x < 0 || x >= width || y < 0 || y >= height) continue;
@@ -276,13 +242,7 @@ function colorFloodFill(imageData, startX, startY, visited, targetR, targetG, ta
         if (visited[idx]) continue;
         
         const pixelIdx = idx * 4;
-        const r = imageData.data[pixelIdx];
-        const g = imageData.data[pixelIdx + 1];
-        const b = imageData.data[pixelIdx + 2];
-        
-        // Check if color is similar enough
-        const colorDiff = Math.abs(r - targetR) + Math.abs(g - targetG) + Math.abs(b - targetB);
-        if (colorDiff > tolerance * 3) continue;
+        if (imageData.data[pixelIdx] < 128) continue;
         
         visited[idx] = true;
         pixels.push([x, y]);
@@ -292,11 +252,11 @@ function colorFloodFill(imageData, startX, startY, visited, targetR, targetG, ta
         minY = Math.min(minY, y);
         maxY = Math.max(maxY, y);
         
-        // Add neighbors
-        stack.push([x + 1, y]);
-        stack.push([x - 1, y]);
-        stack.push([x, y + 1]);
-        stack.push([x, y - 1]);
+        // Add neighbors with step for speed
+        stack.push([x + step, y]);
+        stack.push([x - step, y]);
+        stack.push([x, y + step]);
+        stack.push([x, y - step]);
     }
     
     return {
@@ -308,19 +268,19 @@ function colorFloodFill(imageData, startX, startY, visited, targetR, targetG, ta
 }
 
 /**
- * Extract tile images from regions
+ * Fast tile image extraction
  */
-function extractTileImages(regions, canvas) {
+function extractTileImagesFast(regions, canvas) {
     const extractedTiles = [];
     
     for (const region of regions) {
-        const padding = Math.max(5, Math.min(canvas.width, canvas.height) * 0.02); // Dynamic padding
+        const padding = 5; // Smaller padding for speed
         const x = Math.max(0, region.bounds.minX - padding);
         const y = Math.max(0, region.bounds.minY - padding);
         const width = Math.min(canvas.width - x, region.bounds.maxX - region.bounds.minX + padding * 2);
         const height = Math.min(canvas.height - y, region.bounds.maxY - region.bounds.minY + padding * 2);
         
-        if (width > 10 && height > 10) { // Minimum size check
+        if (width > 20 && height > 20) {
             const tileCanvas = document.createElement('canvas');
             tileCanvas.width = width;
             tileCanvas.height = height;
@@ -329,7 +289,7 @@ function extractTileImages(regions, canvas) {
             tileCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
             
             extractedTiles.push({
-                imageData: tileCanvas.toDataURL('image/jpeg', 0.9),
+                imageData: tileCanvas.toDataURL('image/jpeg', 0.8), // Lower quality for speed
                 bounds: region.bounds,
                 position: { x: region.centerX, y: region.centerY }
             });
@@ -337,63 +297,6 @@ function extractTileImages(regions, canvas) {
     }
     
     return extractedTiles;
-}
-
-/**
- * Merge duplicate tiles from multiple detection strategies
- */
-function mergeDuplicateTiles(tiles) {
-    if (tiles.length === 0) return [];
-    
-    const merged = [];
-    const used = new Set();
-    
-    for (let i = 0; i < tiles.length; i++) {
-        if (used.has(i)) continue;
-        
-        const tile1 = tiles[i];
-        const duplicates = [i];
-        
-        // Find overlapping tiles
-        for (let j = i + 1; j < tiles.length; j++) {
-            if (used.has(j)) continue;
-            
-            const tile2 = tiles[j];
-            const distance = Math.sqrt(
-                Math.pow(tile1.position.x - tile2.position.x, 2) +
-                Math.pow(tile1.position.y - tile2.position.y, 2)
-            );
-            
-            // If tiles are very close, consider them duplicates
-            const avgSize = Math.sqrt(
-                (tile1.bounds.maxX - tile1.bounds.minX) * (tile1.bounds.maxY - tile1.bounds.minY) +
-                (tile2.bounds.maxX - tile2.bounds.minX) * (tile2.bounds.maxY - tile2.bounds.minY)
-            ) / 2;
-            
-            if (distance < avgSize * 0.5) { // Within 50% of average size
-                duplicates.push(j);
-            }
-        }
-        
-        // Mark all duplicates as used
-        duplicates.forEach(idx => used.add(idx));
-        
-        // Keep the largest tile from duplicates
-        const bestTile = duplicates
-            .map(idx => tiles[idx])
-            .reduce((best, current) => {
-                const currentSize = (current.bounds.maxX - current.bounds.minX) * 
-                                  (current.bounds.maxY - current.bounds.minY);
-                const bestSize = (best.bounds.maxX - best.bounds.minX) * 
-                               (best.bounds.maxY - best.bounds.minY);
-                return currentSize > bestSize ? current : best;
-            });
-        
-        merged.push(bestTile);
-    }
-    
-    console.log(`Merged ${tiles.length} detected tiles into ${merged.length} unique tiles`);
-    return merged;
 }
 
 /**
