@@ -11,29 +11,38 @@
 async function detectAndScoreTilesWithDetails(previousImageData, currentImageData) {
     console.log('Starting tile detection and scoring with details...');
     
-    // Step 1: Detect all tiles in current image
-    const currentTiles = await detectAllTilesInImage(currentImageData);
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Tile detection timed out after 30 seconds')), 30000);
+    });
     
-    // Step 2: Detect all tiles in previous image (if exists)
-    let previousTiles = [];
-    if (previousImageData) {
-        previousTiles = await detectAllTilesInImage(previousImageData);
-    }
-    
-    // Step 3: Compare tile sets to find new tiles
-    const newTiles = findNewTiles(previousTiles, currentTiles);
-    
-    console.log(`Found ${currentTiles.length} tiles in current image, ${previousTiles.length} in previous, ${newTiles.length} new tiles`);
-    
-    // Step 4: Calculate score based on new tiles
-    const score = calculateQwirkleScore(newTiles, currentTiles);
-    
-    return {
-        score: score,
-        newTiles: newTiles,
-        allCurrentTiles: currentTiles,
-        previousTiles: previousTiles
+    const detectionPromise = async () => {
+        // Step 1: Detect all tiles in current image
+        const currentTiles = await detectAllTilesInImage(currentImageData);
+        
+        // Step 2: Detect all tiles in previous image (if exists)
+        let previousTiles = [];
+        if (previousImageData) {
+            previousTiles = await detectAllTilesInImage(previousImageData);
+        }
+        
+        // Step 3: Compare tile sets to find new tiles
+        const newTiles = findNewTiles(previousTiles, currentTiles);
+        
+        console.log(`Found ${currentTiles.length} tiles in current image, ${previousTiles.length} in previous, ${newTiles.length} new tiles`);
+        
+        // Step 4: Calculate score based on new tiles
+        const score = calculateQwirkleScore(newTiles, currentTiles);
+        
+        return {
+            score: score,
+            newTiles: newTiles,
+            allCurrentTiles: currentTiles,
+            previousTiles: previousTiles
+        };
     };
+    
+    return Promise.race([detectionPromise(), timeoutPromise]);
 }
 
 /**
@@ -69,55 +78,51 @@ async function detectAllTilesInImage(imageData) {
     // Step 2: Classify each tile using the ML model
     const classifiedTiles = [];
     
-    if (tileDetector.isModelReady && extractedTiles.length > 0) {
+    if (extractedTiles.length > 0) {
         for (let i = 0; i < extractedTiles.length; i++) {
             const tile = extractedTiles[i];
-            try {
-                const classification = await tileDetector.classifyTile(tile.imageData);
-                
-                // Create relative position descriptor instead of grid coordinates
-                const positionDescriptor = createRelativePositionDescriptor(
-                    tile.position, 
-                    extractedTiles, 
-                    img.width, 
-                    img.height
-                );
-                
-                classifiedTiles.push({
-                    id: `tile_${i}`,
-                    color: classification.color,
-                    shape: classification.shape,
-                    colorConfidence: classification.colorConfidence,
-                    shapeConfidence: classification.shapeConfidence,
-                    pixelPosition: tile.position,
-                    positionDescriptor: positionDescriptor,
-                    bounds: tile.bounds,
-                    imageData: tile.imageData,
-                    size: (tile.bounds.maxX - tile.bounds.minX) * (tile.bounds.maxY - tile.bounds.minY)
-                });
-                
-            } catch (error) {
-                console.error('Error classifying tile:', error);
-                // Add unclassified tile for position tracking
-                const positionDescriptor = createRelativePositionDescriptor(
-                    tile.position, 
-                    extractedTiles, 
-                    img.width, 
-                    img.height
-                );
-                classifiedTiles.push({
-                    id: `tile_${i}`,
-                    color: 'unknown',
-                    shape: 'unknown',
-                    colorConfidence: 0,
-                    shapeConfidence: 0,
-                    pixelPosition: tile.position,
-                    positionDescriptor: positionDescriptor,
-                    bounds: tile.bounds,
-                    imageData: tile.imageData,
-                    size: (tile.bounds.maxX - tile.bounds.minX) * (tile.bounds.maxY - tile.bounds.minY)
-                });
+            
+            // Create relative position descriptor
+            const positionDescriptor = createRelativePositionDescriptor(
+                tile.position, 
+                extractedTiles, 
+                img.width, 
+                img.height
+            );
+            
+            let tileData = {
+                id: `tile_${i}`,
+                pixelPosition: tile.position,
+                positionDescriptor: positionDescriptor,
+                bounds: tile.bounds,
+                imageData: tile.imageData,
+                size: (tile.bounds.maxX - tile.bounds.minX) * (tile.bounds.maxY - tile.bounds.minY)
+            };
+            
+            // Try to classify if models are ready
+            if (tileDetector.isModelReady) {
+                try {
+                    const classification = await tileDetector.classifyTile(tile.imageData);
+                    tileData.color = classification.color;
+                    tileData.shape = classification.shape;
+                    tileData.colorConfidence = classification.colorConfidence;
+                    tileData.shapeConfidence = classification.shapeConfidence;
+                } catch (error) {
+                    console.error('Error classifying tile:', error);
+                    tileData.color = 'unknown';
+                    tileData.shape = 'unknown';
+                    tileData.colorConfidence = 0;
+                    tileData.shapeConfidence = 0;
+                }
+            } else {
+                // Models not ready - use placeholder values
+                tileData.color = 'detected';
+                tileData.shape = 'tile';
+                tileData.colorConfidence = 0;
+                tileData.shapeConfidence = 0;
             }
+            
+            classifiedTiles.push(tileData);
         }
     }
     

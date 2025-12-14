@@ -124,9 +124,9 @@ async function processPhoto(photoUrl, canvas) {
         imageData: canvas.toDataURL('image/jpeg', 0.95)
     };
     
-    // Stop camera and show captured photo
+    // Stop camera and show captured photo FIRST (basic fallback)
     stopCamera();
-    showCapturedPhoto(photoUrl);
+    showBasicCapturedPhoto(photoUrl);
     
     // Show retake button, hide take photo button
     document.getElementById('retake-btn').style.display = 'inline-block';
@@ -140,19 +140,28 @@ async function processPhoto(photoUrl, canvas) {
         let detectedScore = 0;
         let newTiles = [];
         
+        console.log('Starting tile detection...');
+        
         // Always try to detect and score tiles (for first player, this will detect all tiles placed)
         const result = await detectAndScoreTilesWithDetails(
             gameState.previousPhoto?.imageData || null,
             gameState.currentPhoto.imageData
         );
         
+        console.log('Tile detection completed:', result);
+        
         detectedScore = result.score;
         newTiles = result.newTiles;
         
         hideLoading();
         
-        // Show photo with visual feedback of detected tiles
-        showPhotoWithDetectedTiles(photoUrl, newTiles, canvas.width, canvas.height);
+        // Try to show photo with visual feedback, fallback to basic if it fails
+        try {
+            showPhotoWithDetectedTiles(photoUrl, newTiles, canvas.width, canvas.height);
+        } catch (visualError) {
+            console.error('Visual feedback failed, showing basic photo:', visualError);
+            showBasicCapturedPhoto(photoUrl);
+        }
         
         // Show manual score adjustment with detailed feedback
         document.getElementById('detected-score').textContent = detectedScore;
@@ -160,18 +169,44 @@ async function processPhoto(photoUrl, canvas) {
         document.getElementById('manual-score-section').style.display = 'block';
         document.getElementById('action-buttons').style.display = 'none';
         
-        // Show detection details
-        showDetectionDetails(newTiles);
+        // Show detection details (with error handling)
+        try {
+            showDetectionDetails(newTiles);
+        } catch (detailsError) {
+            console.error('Detection details failed:', detailsError);
+        }
         
     } catch (error) {
         hideLoading();
         console.error('Error processing photo:', error);
-        alert('Error analyzing photo. Please try again or enter score manually.');
+        
+        // Ensure UI is shown even if detection fails
         document.getElementById('detected-score').textContent = '0';
         document.getElementById('manual-score-input').value = '0';
         document.getElementById('manual-score-section').style.display = 'block';
         document.getElementById('action-buttons').style.display = 'none';
+        
+        // Show error message to user
+        const detailsDiv = document.createElement('div');
+        detailsDiv.id = 'detection-details';
+        detailsDiv.style.marginTop = '15px';
+        detailsDiv.style.padding = '10px';
+        detailsDiv.style.backgroundColor = '#ffe6e6';
+        detailsDiv.style.borderRadius = '8px';
+        detailsDiv.style.fontSize = '14px';
+        detailsDiv.innerHTML = `<strong>❌ Error analyzing photo</strong><br>Photo processing failed: ${error.message}<br>You can still enter the score manually.`;
+        
+        const manualScoreSection = document.getElementById('manual-score-section');
+        manualScoreSection.appendChild(detailsDiv);
     }
+}
+
+// Simple fallback photo display
+function showBasicCapturedPhoto(photoUrl) {
+    const capturedDiv = document.getElementById('captured-photo');
+    capturedDiv.innerHTML = `<img src="${photoUrl}" alt="Captured board" style="width: 100%; border-radius: 8px;">`;
+    capturedDiv.classList.remove('empty');
+    capturedDiv.style.display = 'block';
 }
 
 function stopCamera() {
@@ -258,13 +293,24 @@ function drawDetectionOverlay(canvas, newTiles, img, originalWidth, originalHeig
             const labelX = x + width / 2;
             const labelY = y - 10;
             
+            // Create label text
+            let labelText = '';
+            if (tile.color === 'detected' && tile.shape === 'tile') {
+                labelText = 'Tile';  // Simplified label when models aren't ready
+            } else if (tile.color === 'unknown' && tile.shape === 'unknown') {
+                labelText = 'Unknown';
+            } else {
+                labelText = `${tile.color} ${tile.shape}`;
+            }
+            
             // Background for text
+            const textWidth = ctx.measureText(labelText).width + 16;
             ctx.fillStyle = '#00ff00';
-            ctx.fillRect(labelX - 40, labelY - 18, 80, 20);
+            ctx.fillRect(labelX - textWidth/2, labelY - 18, textWidth, 20);
             
             // Text
             ctx.fillStyle = '#000000';
-            ctx.fillText(`${tile.color} ${tile.shape}`, labelX, labelY - 4);
+            ctx.fillText(labelText, labelX, labelY - 4);
             
             // Number
             ctx.fillStyle = '#ffffff';
@@ -293,6 +339,16 @@ function showDetectionDetails(newTiles) {
         // Insert after manual score section
         const manualScoreSection = document.getElementById('manual-score-section');
         manualScoreSection.appendChild(detailsDiv);
+    }
+    
+    // Check if models are ready
+    if (!tileDetector.isModelReady) {
+        if (newTiles.length > 0) {
+            detailsDiv.innerHTML = `<strong>📷 ${newTiles.length} tile${newTiles.length > 1 ? 's' : ''} detected but not classified</strong><br><span style="color: #ff6600;">⚠️ ML models not loaded - tile color/shape detection unavailable.</span><br>You can still manually adjust the score. <a href="#" onclick="showScreen('training-screen')" style="color: #007bff;">Train models</a> for automatic classification.`;
+        } else {
+            detailsDiv.innerHTML = '<strong>⚠️ No new tiles detected!</strong><br><span style="color: #ff6600;">ML models not loaded</span> - basic shape detection only.<br>This could mean:<br>• The tiles look very similar to previous photo<br>• Poor lighting or angle<br>• Tiles are too small or blurry';
+        }
+        return;
     }
     
     if (newTiles.length === 0) {
