@@ -3,12 +3,13 @@
 
 /**
  * Compares two images and detects differences (new tiles)
+ * Returns detailed results for visual feedback
  * @param {string} previousImageData - Base64 data URL of previous photo
  * @param {string} currentImageData - Base64 data URL of current photo
- * @returns {Promise<Object>} Detection results with tile positions and colors
+ * @returns {Promise<Object>} Detection results with score and detailed tile info
  */
-async function detectAndScoreTiles(previousImageData, currentImageData) {
-    console.log('Starting tile detection and scoring...');
+async function detectAndScoreTilesWithDetails(previousImageData, currentImageData) {
+    console.log('Starting tile detection and scoring with details...');
     
     // Step 1: Detect all tiles in current image
     const currentTiles = await detectAllTilesInImage(currentImageData);
@@ -27,7 +28,20 @@ async function detectAndScoreTiles(previousImageData, currentImageData) {
     // Step 4: Calculate score based on new tiles
     const score = calculateQwirkleScore(newTiles, currentTiles);
     
-    return score;
+    return {
+        score: score,
+        newTiles: newTiles,
+        allCurrentTiles: currentTiles,
+        previousTiles: previousTiles
+    };
+}
+
+/**
+ * Original function maintained for compatibility
+ */
+async function detectAndScoreTiles(previousImageData, currentImageData) {
+    const result = await detectAndScoreTilesWithDetails(previousImageData, currentImageData);
+    return result.score;
 }
 
 /**

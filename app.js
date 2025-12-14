@@ -138,20 +138,30 @@ async function processPhoto(photoUrl, canvas) {
     
     try {
         let detectedScore = 0;
+        let newTiles = [];
         
         // Always try to detect and score tiles (for first player, this will detect all tiles placed)
-        detectedScore = await detectAndScoreTiles(
+        const result = await detectAndScoreTilesWithDetails(
             gameState.previousPhoto?.imageData || null,
             gameState.currentPhoto.imageData
         );
         
+        detectedScore = result.score;
+        newTiles = result.newTiles;
+        
         hideLoading();
         
-        // Show manual score adjustment
+        // Show photo with visual feedback of detected tiles
+        showPhotoWithDetectedTiles(photoUrl, newTiles, canvas.width, canvas.height);
+        
+        // Show manual score adjustment with detailed feedback
         document.getElementById('detected-score').textContent = detectedScore;
         document.getElementById('manual-score-input').value = detectedScore;
         document.getElementById('manual-score-section').style.display = 'block';
         document.getElementById('action-buttons').style.display = 'none';
+        
+        // Show detection details
+        showDetectionDetails(newTiles);
         
     } catch (error) {
         hideLoading();
@@ -175,11 +185,140 @@ function stopCamera() {
     video.style.display = 'none';
 }
 
-function showCapturedPhoto(photoUrl) {
+function showPhotoWithDetectedTiles(photoUrl, newTiles, originalWidth, originalHeight) {
     const capturedDiv = document.getElementById('captured-photo');
-    capturedDiv.innerHTML = `<img src="${photoUrl}" alt="Captured board" style="width: 100%; border-radius: 8px;">`;
+    
+    // Create container with image and overlay
+    const container = document.createElement('div');
+    container.style.position = 'relative';
+    container.style.display = 'inline-block';
+    container.style.width = '100%';
+    
+    // Create image
+    const img = document.createElement('img');
+    img.src = photoUrl;
+    img.style.width = '100%';
+    img.style.borderRadius = '8px';
+    img.alt = 'Captured board with detected tiles';
+    
+    // Create overlay canvas for drawing detection boxes
+    const overlay = document.createElement('canvas');
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.pointerEvents = 'none';
+    
+    container.appendChild(img);
+    container.appendChild(overlay);
+    
+    // Draw detection boxes when image loads
+    img.onload = () => {
+        drawDetectionOverlay(overlay, newTiles, img, originalWidth, originalHeight);
+    };
+    
+    capturedDiv.innerHTML = '';
+    capturedDiv.appendChild(container);
     capturedDiv.classList.remove('empty');
     capturedDiv.style.display = 'block';
+}
+
+function drawDetectionOverlay(canvas, newTiles, img, originalWidth, originalHeight) {
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size to match image display size
+    const rect = img.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    
+    // Calculate scaling factors
+    const scaleX = canvas.width / originalWidth;
+    const scaleY = canvas.height / originalHeight;
+    
+    ctx.strokeStyle = '#00ff00'; // Green for new tiles
+    ctx.lineWidth = 3;
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)'; // Semi-transparent green
+    ctx.font = '14px Arial';
+    ctx.textAlign = 'center';
+    
+    newTiles.forEach((tile, index) => {
+        if (tile.bounds) {
+            // Scale bounds to display size
+            const x = tile.bounds.minX * scaleX;
+            const y = tile.bounds.minY * scaleY;
+            const width = (tile.bounds.maxX - tile.bounds.minX) * scaleX;
+            const height = (tile.bounds.maxY - tile.bounds.minY) * scaleY;
+            
+            // Draw detection box
+            ctx.strokeRect(x, y, width, height);
+            ctx.fillRect(x, y, width, height);
+            
+            // Draw label
+            const labelX = x + width / 2;
+            const labelY = y - 10;
+            
+            // Background for text
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(labelX - 40, labelY - 18, 80, 20);
+            
+            // Text
+            ctx.fillStyle = '#000000';
+            ctx.fillText(`${tile.color} ${tile.shape}`, labelX, labelY - 4);
+            
+            // Number
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 16px Arial';
+            ctx.fillText((index + 1).toString(), x + 10, y + 20);
+            
+            // Reset styles
+            ctx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+            ctx.font = '14px Arial';
+        }
+    });
+}
+
+function showDetectionDetails(newTiles) {
+    // Create or update detection details section
+    let detailsDiv = document.getElementById('detection-details');
+    if (!detailsDiv) {
+        detailsDiv = document.createElement('div');
+        detailsDiv.id = 'detection-details';
+        detailsDiv.style.marginTop = '15px';
+        detailsDiv.style.padding = '10px';
+        detailsDiv.style.backgroundColor = '#f0f0f0';
+        detailsDiv.style.borderRadius = '8px';
+        detailsDiv.style.fontSize = '14px';
+        
+        // Insert after manual score section
+        const manualScoreSection = document.getElementById('manual-score-section');
+        manualScoreSection.appendChild(detailsDiv);
+    }
+    
+    if (newTiles.length === 0) {
+        detailsDiv.innerHTML = '<strong>⚠️ No new tiles detected!</strong><br>The AI couldn\'t find any new tiles. This could mean:<br>• The tiles look very similar to previous photo<br>• Poor lighting or angle<br>• Tiles are too small or blurry';
+        return;
+    }
+    
+    let html = `<strong>🎯 Detected ${newTiles.length} new tile${newTiles.length > 1 ? 's' : ''}:</strong><br>`;
+    
+    newTiles.forEach((tile, index) => {
+        const colorConf = Math.round((tile.colorConfidence || 0) * 100);
+        const shapeConf = Math.round((tile.shapeConfidence || 0) * 100);
+        
+        let confidenceColor = '#ff4444'; // Red for low confidence
+        if (colorConf > 70 && shapeConf > 70) confidenceColor = '#44ff44'; // Green for high
+        else if (colorConf > 50 && shapeConf > 50) confidenceColor = '#ffaa44'; // Orange for medium
+        
+        html += `<div style="margin: 5px 0; padding: 5px; background: white; border-radius: 4px;">`;
+        html += `<span style="background: #00ff00; color: white; padding: 2px 6px; border-radius: 3px; margin-right: 8px;">${index + 1}</span>`;
+        html += `<strong>${tile.color || 'unknown'} ${tile.shape || 'unknown'}</strong>`;
+        html += `<br><span style="font-size: 12px; color: ${confidenceColor};">`;
+        html += `Confidence: Color ${colorConf}%, Shape ${shapeConf}%</span>`;
+        html += `</div>`;
+    });
+    
+    detailsDiv.innerHTML = html;
 }
 
 function startNewTurn() {
@@ -214,6 +353,12 @@ function startNewTurn() {
     // Reset UI for new turn
     document.getElementById('manual-score-section').style.display = 'none';
     document.getElementById('action-buttons').style.display = 'flex';
+    
+    // Clear detection details
+    const detailsDiv = document.getElementById('detection-details');
+    if (detailsDiv) {
+        detailsDiv.remove();
+    }
     
     // Show take photo button, hide retake button
     const takePhotoBtn = document.querySelector('#action-buttons .btn-primary');
